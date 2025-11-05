@@ -1,150 +1,94 @@
 import streamlit as st
-import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
+import numpy as np
 import time
-from io import BytesIO
+import io
 
-# ------------------------------
-# PAGE CONFIG
-# ------------------------------
 st.set_page_config(page_title="CGM + Insulin Pump", layout="wide")
 
-st.title("🩸 Continuous Glucose Monitoring + Insulin Pump Controller")
-st.markdown(
-    """
-    This app simulates **real-time glucose monitoring** and **insulin control**
-    using a PID controller. You can adjust parameters, start/stop simulation,
-    and download readings as a CSV file.
-    """
-)
-
-# ------------------------------
-# SIDEBAR: CONTROL PANEL
-# ------------------------------
-st.sidebar.header("⚙️ Control Settings")
+st.sidebar.title("⚙️ Control Settings")
 mode = st.sidebar.radio("Select Mode:", ["Live Simulation", "Upload CSV"])
 
 target_glucose = st.sidebar.slider("🎯 Target Glucose (mg/dL)", 70, 180, 100)
-kp = st.sidebar.slider("Kp (Proportional Gain)", 0.0, 1.0, 0.5, step=0.01)
-ki = st.sidebar.slider("Ki (Integral Gain)", 0.0, 0.1, 0.01, step=0.001)
-kd = st.sidebar.slider("Kd (Derivative Gain)", 0.0, 0.2, 0.1, step=0.01)
+kp = st.sidebar.slider("Kp (Proportional Gain)", 0.0, 1.0, 0.26, 0.01)
+ki = st.sidebar.slider("Ki (Integral Gain)", 0.0, 1.0, 0.03, 0.01)
+kd = st.sidebar.slider("Kd (Derivative Gain)", 0.0, 1.0, 0.10, 0.01)
 
-# ------------------------------
-# MODE 1: LIVE SIMULATION
-# ------------------------------
+st.title("💧 Continuous Glucose Monitoring + Insulin Pump Controller")
+st.markdown("""
+This app simulates **real-time glucose monitoring and insulin control** using a PID controller.
+You can adjust parameters, start/stop simulation, and download readings as a CSV file.
+""")
+
+placeholder = st.empty()
+
+if "running" not in st.session_state:
+    st.session_state.running = False
+if "data" not in st.session_state:
+    st.session_state.data = pd.DataFrame(columns=["Time", "Glucose (mg/dL)", "Insulin (mU/L)"])
+
+def simulate_glucose_control(kp, ki, kd, target_glucose):
+    glucose = np.random.randint(100, 140)
+    insulin = 0
+    integral = 0
+    prev_error = 0
+
+    readings = []
+
+    for t in range(1, 31):  # 30 time steps
+        error = glucose - target_glucose
+        integral += error
+        derivative = error - prev_error
+        insulin = kp * error + ki * integral + kd * derivative
+        glucose = glucose - insulin * 0.5 + np.random.normal(0, 1)
+        prev_error = error
+        readings.append([t, round(glucose, 2), round(insulin, 2)])
+        time.sleep(0.3)
+        yield readings
+
 if mode == "Live Simulation":
-    st.subheader("📡 Live Glucose & Insulin Monitoring")
+    col1, col2 = st.columns(2)
+    start = col1.button("▶️ Start Simulation")
+    stop = col2.button("⏹️ Stop Simulation")
 
-    start_sim = st.button("▶️ Start Simulation")
-    stop_sim = st.button("⏹ Stop Simulation")
+    if start:
+        st.session_state.running = True
+        st.session_state.data = pd.DataFrame(columns=["Time", "Glucose (mg/dL)", "Insulin (mU/L)"])
+        placeholder.empty()
+        with placeholder.container():
+            st.subheader("📈 Live Glucose & Insulin Monitoring")
+            chart_placeholder = st.empty()
+            for readings in simulate_glucose_control(kp, ki, kd, target_glucose):
+                if not st.session_state.running:
+                    break
+                df = pd.DataFrame(readings, columns=["Time", "Glucose (mg/dL)", "Insulin (mU/L)"])
+                st.session_state.data = df
+                chart_placeholder.line_chart(df.set_index("Time"))
+        st.success("✅ Simulation completed!")
+    elif stop:
+        st.session_state.running = False
+        st.warning("⏹️ Simulation stopped by user.")
 
-    graph_placeholder = st.empty()
-    status_placeholder = st.empty()
-
-    if start_sim:
-        glucose = 120
-        insulin = 0
-        error_sum = 0
-        last_error = 0
-        glucose_history = []
-        insulin_history = []
-        time_history = []
-
-        time_steps = 150
-        run_simulation = True
-
-        for t in range(time_steps):
-            if stop_sim:
-                status_placeholder.info("🛑 Simulation stopped.")
-                run_simulation = False
-                break
-
-            # Simulate glucose variation
-            glucose += np.random.randn() * 2
-
-            # PID logic
-            error = target_glucose - glucose
-            error_sum += error
-            d_error = error - last_error
-            last_error = error
-
-            insulin = kp * error + ki * error_sum + kd * d_error
-            insulin = max(0, insulin)
-
-            glucose += np.random.randn() - insulin * 0.1
-
-            glucose_history.append(glucose)
-            insulin_history.append(insulin)
-            time_history.append(t)
-
-            # Live graph
-            fig, ax1 = plt.subplots()
-            ax1.plot(time_history, glucose_history, color='r', label='Glucose (mg/dL)')
-            ax1.axhline(y=target_glucose, color='r', linestyle='--', label='Target')
-            ax1.set_xlabel('Time (s)')
-            ax1.set_ylabel('Glucose Level', color='r')
-            ax2 = ax1.twinx()
-            ax2.plot(time_history, insulin_history, color='b', label='Insulin Dose (units)')
-            ax2.set_ylabel('Insulin Dose', color='b')
-            ax1.legend(loc='upper left')
-            ax2.legend(loc='upper right')
-            graph_placeholder.pyplot(fig)
-            plt.close(fig)
-
-            # Status messages
-            if glucose < 70:
-                status_placeholder.warning("⚠️ Glucose too low! (Hypoglycemia risk)")
-            elif glucose > 180:
-                status_placeholder.error("🚨 Glucose too high! (Hyperglycemia risk)")
-            else:
-                status_placeholder.success("✅ Glucose is in the normal range.")
-
-            time.sleep(0.2)
-
-        # After simulation: download CSV
-        if run_simulation:
-            df = pd.DataFrame({
-                "Time (s)": time_history,
-                "Glucose (mg/dL)": glucose_history,
-                "Insulin (units)": insulin_history
-            })
-            st.success("✅ Simulation complete!")
-
-            csv_buffer = BytesIO()
-            df.to_csv(csv_buffer, index=False)
-            st.download_button(
-                label="📥 Download Glucose-Insulin Data (CSV)",
-                data=csv_buffer.getvalue(),
-                file_name="glucose_insulin_simulation.csv",
-                mime="text/csv"
-            )
-
-# ------------------------------
-# MODE 2: UPLOAD CSV
-# ------------------------------
-else:
-    st.subheader("📁 Upload Glucose Data (CSV)")
-    file = st.file_uploader("Upload a CSV file with a 'Glucose' column", type=["csv"])
-
-    if file is not None:
-        df = pd.read_csv(file)
-        st.write("Preview of Uploaded Data:")
+elif mode == "Upload CSV":
+    st.subheader("📤 Upload your Glucose Data CSV")
+    uploaded_file = st.file_uploader("Choose a CSV file", type=["csv"])
+    if uploaded_file is not None:
+        df = pd.read_csv(uploaded_file)
+        st.write("### Preview of Uploaded Data")
         st.dataframe(df.head())
+        st.line_chart(df.set_index(df.columns[0]))
 
-        if 'Glucose' in df.columns:
-            fig, ax = plt.subplots()
-            ax.plot(df['Glucose'], color='r', label='Glucose Level')
-            ax.axhline(y=target_glucose, color='r', linestyle='--', label='Target')
-            ax.set_xlabel('Time')
-            ax.set_ylabel('Glucose (mg/dL)')
-            ax.legend()
-            st.pyplot(fig)
-        else:
-            st.error("❌ CSV must include a 'Glucose' column.")
+# Download button (available if data exists)
+if not st.session_state.data.empty:
+    buffer = io.BytesIO()
+    st.session_state.data.to_csv(buffer, index=False)
+    buffer.seek(0)
+    st.download_button(
+        label="💾 Download Readings as CSV",
+        data=buffer,
+        file_name="glucose_readings.csv",
+        mime="text/csv"
+    )
 
-# ------------------------------
-# FOOTER
-# ------------------------------
 st.markdown("---")
-st.markdown("👩‍⚕️ **Developed for educational demonstration of glucose-insulin feedback control using PID.**")
+st.markdown("🔬 **Developed for educational demonstration of glucose-insulin feedback control using PID.**")
