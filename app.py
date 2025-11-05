@@ -32,19 +32,18 @@ def simulate_glucose_control(kp, ki, kd, target_glucose):
     insulin = 0
     integral = 0
     prev_error = 0
+    t = 0
 
-    readings = []
-
-    for t in range(1, 31):  # 30 time steps
+    while st.session_state.running:
+        t += 1
         error = glucose - target_glucose
         integral += error
         derivative = error - prev_error
         insulin = kp * error + ki * integral + kd * derivative
         glucose = glucose - insulin * 0.5 + np.random.normal(0, 1)
         prev_error = error
-        readings.append([t, round(glucose, 2), round(insulin, 2)])
-        time.sleep(0.3)
-        yield readings
+        yield [t, round(glucose, 2), round(insulin, 2)]
+        time.sleep(0.5)
 
 if mode == "Live Simulation":
     col1, col2 = st.columns(2)
@@ -58,16 +57,19 @@ if mode == "Live Simulation":
         with placeholder.container():
             st.subheader("📈 Live Glucose & Insulin Monitoring")
             chart_placeholder = st.empty()
-            for readings in simulate_glucose_control(kp, ki, kd, target_glucose):
-                if not st.session_state.running:
-                    break
-                df = pd.DataFrame(readings, columns=["Time", "Glucose (mg/dL)", "Insulin (mU/L)"])
-                st.session_state.data = df
-                chart_placeholder.line_chart(df.set_index("Time"))
-        st.success("✅ Simulation completed!")
+            table_placeholder = st.empty()
+            for reading in simulate_glucose_control(kp, ki, kd, target_glucose):
+                new_row = pd.DataFrame([reading], columns=["Time", "Glucose (mg/dL)", "Insulin (mU/L)"])
+                st.session_state.data = pd.concat([st.session_state.data, new_row], ignore_index=True)
+                chart_placeholder.line_chart(st.session_state.data.set_index("Time"))
+                table_placeholder.dataframe(st.session_state.data.tail(10))  # Show last 10 readings
+
     elif stop:
         st.session_state.running = False
         st.warning("⏹️ Simulation stopped by user.")
+        if not st.session_state.data.empty:
+            st.subheader("📊 Last Recorded Readings")
+            st.dataframe(st.session_state.data.tail(10))
 
 elif mode == "Upload CSV":
     st.subheader("📤 Upload your Glucose Data CSV")
@@ -89,6 +91,3 @@ if not st.session_state.data.empty:
         file_name="glucose_readings.csv",
         mime="text/csv"
     )
-
-st.markdown("---")
-st.markdown("🔬 **Developed for educational demonstration of glucose-insulin feedback control using PID.**")
