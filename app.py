@@ -28,7 +28,7 @@ if "data" not in st.session_state:
     st.session_state.data = pd.DataFrame(columns=["Time", "Glucose (mg/dL)", "Insulin (mU/L)"])
 
 def simulate_glucose_control(kp, ki, kd, target_glucose):
-    glucose = np.random.randint(100, 140)
+    glucose = np.random.randint(120, 160)
     insulin = 0
     integral = 0
     prev_error = 0
@@ -40,7 +40,7 @@ def simulate_glucose_control(kp, ki, kd, target_glucose):
         integral += error
         derivative = error - prev_error
         insulin = kp * error + ki * integral + kd * derivative
-        glucose = glucose - insulin * 0.5 + np.random.normal(0, 1)
+        glucose = glucose - insulin * 0.7 + np.random.normal(0, 5)
         prev_error = error
         yield [t, round(glucose, 2), round(insulin, 2)]
         time.sleep(0.5)
