@@ -1,73 +1,121 @@
 import streamlit as st
-import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
+import time
 
+# ------------------------------
+# PAGE CONFIG
+# ------------------------------
 st.set_page_config(page_title="CGM + Insulin Pump", layout="wide")
-st.title("💉 Continuous Glucose Monitoring with Insulin Pump Control")
-st.markdown("""This demo simulates **real-time glucose monitoring** and **automatic insulin dosing** using a basic **PID controller**.""")
 
-st.sidebar.header("📊 Data Options")
-data_source = st.sidebar.radio("Select Data Source:", ["Simulated", "Upload CSV"])
+st.title("🩸 Continuous Glucose Monitoring + Insulin Pump Controller")
+st.markdown(
+    """
+    This app simulates **real-time glucose monitoring** and **insulin control**
+    using a simple PID controller. You can adjust target glucose levels and PID parameters
+    to observe how insulin dosage stabilizes blood sugar.
+    """
+)
 
-if data_source == "Upload CSV":
-    uploaded_file = st.sidebar.file_uploader("Upload your glucose data CSV", type=["csv"])
-    if uploaded_file is not None:
-        df = pd.read_csv(uploaded_file)
-    else:
-        st.warning("Please upload a CSV file.")
-        st.stop()
+# ------------------------------
+# SIDEBAR: CONTROL PARAMETERS
+# ------------------------------
+st.sidebar.header("⚙️ Data & Control Options")
+mode = st.sidebar.radio("Select Mode:", ["Live Simulation", "Upload CSV"])
+
+target_glucose = st.sidebar.slider("🎯 Target Glucose (mg/dL)", 70, 180, 100)
+kp = st.sidebar.slider("Kp (Proportional Gain)", 0.0, 1.0, 0.5, step=0.01)
+ki = st.sidebar.slider("Ki (Integral Gain)", 0.0, 0.1, 0.01, step=0.001)
+kd = st.sidebar.slider("Kd (Derivative Gain)", 0.0, 0.2, 0.1, step=0.01)
+
+# ------------------------------
+# MODE 1: LIVE SIMULATION
+# ------------------------------
+if mode == "Live Simulation":
+    st.subheader("📡 Live Glucose & Insulin Monitoring")
+
+    graph_placeholder = st.empty()
+    status_placeholder = st.empty()
+
+    # Simulation parameters
+    time_steps = 100
+    glucose = 120
+    insulin = 0
+    error_sum = 0
+    last_error = 0
+
+    glucose_history = []
+    insulin_history = []
+
+    # Real-time loop
+    for t in range(time_steps):
+        # Simulate natural body variation
+        glucose += np.random.randn() * 2
+
+        # PID control logic
+        error = target_glucose - glucose
+        error_sum += error
+        d_error = error - last_error
+        last_error = error
+
+        insulin = kp * error + ki * error_sum + kd * d_error
+        insulin = max(0, insulin)  # Insulin can't be negative
+
+        # Glucose response (insulin lowers glucose)
+        glucose += np.random.randn() - insulin * 0.1
+
+        glucose_history.append(glucose)
+        insulin_history.append(insulin)
+
+        # Plot dynamic chart
+        fig, ax1 = plt.subplots()
+        ax1.plot(glucose_history, color='r', label='Glucose Level (mg/dL)')
+        ax1.axhline(y=target_glucose, color='r', linestyle='--', label='Target')
+        ax1.set_xlabel('Time (s)')
+        ax1.set_ylabel('Glucose Level', color='r')
+        ax2 = ax1.twinx()
+        ax2.plot(insulin_history, color='b', label='Insulin Dose (units)')
+        ax2.set_ylabel('Insulin Dose', color='b')
+        ax1.legend(loc='upper left')
+        ax2.legend(loc='upper right')
+        graph_placeholder.pyplot(fig)
+        plt.close(fig)
+
+        # Update status
+        if glucose < 70:
+            status_placeholder.warning("⚠️ Glucose too low! (Hypoglycemia risk)")
+        elif glucose > 180:
+            status_placeholder.error("🚨 Glucose too high! (Hyperglycemia risk)")
+        else:
+            status_placeholder.success("✅ Glucose is in the normal range.")
+
+        time.sleep(0.2)
+
+# ------------------------------
+# MODE 2: CSV UPLOAD
+# ------------------------------
 else:
-    time = np.arange(0, 300, 1)
-    glucose = 120 + 30*np.sin(time/30) + np.random.normal(0, 5, len(time))
-    df = pd.DataFrame({"Time (min)": time, "Glucose (mg/dL)": glucose})
+    st.subheader("📁 Upload Glucose Data (CSV)")
+    file = st.file_uploader("Upload a CSV file containing glucose readings", type=["csv"])
+    if file is not None:
+        import pandas as pd
+        df = pd.read_csv(file)
+        st.write("Preview of your data:")
+        st.dataframe(df.head())
 
-target = st.sidebar.slider("Target Glucose Level (mg/dL)", 80, 130, 100)
-Kp = st.sidebar.slider("Kp (Proportional Gain)", 0.1, 1.0, 0.5)
-Ki = st.sidebar.slider("Ki (Integral Gain)", 0.0, 0.1, 0.01)
-Kd = st.sidebar.slider("Kd (Derivative Gain)", 0.0, 0.5, 0.1)
+        if 'Glucose' in df.columns:
+            fig, ax = plt.subplots()
+            ax.plot(df['Glucose'], color='r', label='Glucose Level')
+            ax.axhline(y=target_glucose, color='r', linestyle='--', label='Target')
+            ax.set_xlabel('Time')
+            ax.set_ylabel('Glucose Level (mg/dL)')
+            ax.legend()
+            st.pyplot(fig)
+        else:
+            st.error("❌ CSV must contain a 'Glucose' column.")
 
-insulin_dose = []
-integral, prev_error = 0, 0
-
-for g in df["Glucose (mg/dL)"]:
-    error = g - target
-    integral += error
-    derivative = error - prev_error
-    insulin = Kp * error + Ki * integral + Kd * derivative
-    insulin = max(0, round(insulin, 2))
-    insulin_dose.append(insulin)
-    prev_error = error
-
-df["Insulin Dose (units)"] = insulin_dose
-
-current_glucose = df["Glucose (mg/dL)"].iloc[-1]
-if current_glucose > 180:
-    st.error("⚠️ High glucose detected! Increase insulin dosage.")
-elif current_glucose < 70:
-    st.warning("⚠️ Low glucose! Intake glucose immediately.")
-else:
-    st.success("✅ Glucose is in the normal range.")
-
-st.subheader("📈 Glucose and Insulin Trends")
-fig, ax1 = plt.subplots(figsize=(10, 4))
-ax1.plot(df["Time (min)"], df["Glucose (mg/dL)"], label="Glucose Level", color='tab:red')
-ax1.axhline(y=target, color='r', linestyle='--', label='Target')
-ax1.set_xlabel("Time (min)")
-ax1.set_ylabel("Glucose (mg/dL)")
-ax1.legend(loc="upper left")
-
-ax2 = ax1.twinx()
-ax2.plot(df["Time (min)"], df["Insulin Dose (units)"], label="Insulin Dose", color='tab:blue')
-ax2.set_ylabel("Insulin (units)")
-ax2.legend(loc="upper right")
-
-st.pyplot(fig)
-st.subheader("📋 Recent Readings")
-st.dataframe(df.tail(10))
-
-csv = df.to_csv(index=False).encode('utf-8')
-st.download_button(label="⬇️ Download Results as CSV", data=csv, file_name='cgm_results.csv', mime='text/csv')
-
+# ------------------------------
+# FOOTER
+# ------------------------------
 st.markdown("---")
-st.caption("Developed by [Your Name] | Smart Insulin Control Project")
+st.markdown("👩‍⚕️ **Developed for educational demonstration of glucose-insulin feedback control using PID.**")
