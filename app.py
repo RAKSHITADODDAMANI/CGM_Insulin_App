@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import time
 import io
+st.markdown("<meta name='viewport' content='width=device-width, initial-scale=1.0'>", unsafe_allow_html=True)
 
 st.set_page_config(page_title="CGM + Insulin Pump", layout="wide")
 
